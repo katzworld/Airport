@@ -1,0 +1,1407 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Airport Radar Map</title>
+    <meta charset='utf-8' />
+    <meta name='viewport' content='width=device-width, initial-scale=1.0' />
+    <link rel="stylesheet" href="https://openlayers.org/en/v6.15.1/css/ol.css" type="text/css">
+    <script src="https://openlayers.org/en/v6.15.1/build/ol.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.wasm"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+        }
+
+        #main-header {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            background-color: #ff0000;
+            color: white;
+            padding: 10px;
+            text-align: center;
+            font-size: 24px;
+            font-weight: bold;
+            z-index: 1000;
+            display: none;
+            /* Hidden by default */
+            animation: blink 1s infinite;
+        }
+
+        @keyframes blink {
+            0% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.5;
+            }
+
+            100% {
+                opacity: 1;
+            }
+        }
+
+        #map {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            width: 100%;
+        }
+
+        #info-panel {
+            position: absolute;
+            top: 0;
+            right: 20px;
+            z-index: 1000;
+            background-color: rgba(255, 255, 255, 0.95);
+            padding: 10px;
+            border-radius: 0 0 5px 5px;
+            font-family: Arial, sans-serif;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+            width: 300px;
+            transition: transform 0.3s ease-in-out;
+            overflow: hidden;
+        }
+
+        #info-panel.collapsed {
+            transform: translateY(-95%);
+        }
+
+        #info-panel>div {
+            overflow-y: auto;
+            max-height: 100%;
+            padding-right: 20px;
+            /* Compensate for scrollbar */
+            margin-right: -20px;
+            /* Hide scrollbar */
+            box-sizing: content-box;
+        }
+
+        #collapse-button {
+            position: absolute;
+            left: 50%;
+            transform: translateX(-50%);
+            bottom: -30px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 0 0 8px 8px;
+            width: 60px;
+            height: 30px;
+            cursor: pointer;
+            padding: 0;
+            z-index: 1001;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+        }
+
+        #collapse-button::after {
+            content: '•••';
+            font-size: 20px;
+            letter-spacing: 2px;
+            line-height: 0;
+            padding-bottom: 10px;
+        }
+
+        #info-panel.collapsed #collapse-button::after {
+            padding-bottom: 0;
+            padding-top: 10px;
+        }
+
+        /* Make sure the button stays visible when panel is collapsed */
+        #info-panel.collapsed #collapse-button {
+            bottom: 0;
+        }
+
+        .radar-status-header {
+            margin: -10px -10px 10px -10px;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-bottom: 1px solid #dee2e6;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .radar-status-header h2 {
+            margin: 0;
+            font-size: 1.5em;
+        }
+
+        .radar-status-header .toggle-icon {
+            font-size: 1.2em;
+            transition: transform 0.3s ease;
+        }
+
+        .radar-status-header.collapsed .toggle-icon {
+            transform: rotate(180deg);
+        }
+
+        #radar-status {
+            margin-bottom: 15px;
+            border-bottom: 1px solid #ddd;
+            padding-bottom: 15px;
+            transition: max-height 0.3s ease, opacity 0.3s ease;
+            max-height: 500px;
+            opacity: 1;
+            overflow: hidden;
+        }
+
+        #radar-status.collapsed {
+            max-height: 0;
+            opacity: 0;
+            padding-bottom: 0;
+            margin-bottom: 0;
+        }
+
+        #peers-container {
+            max-height: calc(90vh - 200px);
+            overflow-y: auto;
+            padding-right: 10px;
+        }
+
+        .peer-section {
+            background-color: #f8f9fa;
+            border-radius: 4px;
+            padding: 10px;
+            margin-bottom: 10px;
+        }
+
+        .map-options-section {
+            position: absolute;
+            top: 50px;
+            left: 8px;
+            z-index: 1000;
+            background-color: white;
+            border-radius: 4px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+            width: 250px;
+        }
+
+        .map-options-header {
+            padding: 10px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background-color: white;
+            border-radius: 4px;
+        }
+
+        .map-options-header h3 {
+            margin: 0;
+            font-size: 1.1em;
+            color: #333;
+        }
+
+        .map-options-content {
+            padding: 10px;
+            background-color: white;
+            border-top: 1px solid #eee;
+            transition: max-height 0.3s ease, opacity 0.3s ease;
+            max-height: 500px;
+            opacity: 1;
+            overflow: hidden;
+        }
+
+        .map-options-content.collapsed {
+            max-height: 0;
+            opacity: 0;
+            padding: 0;
+            border-top: none;
+        }
+
+        .map-file-input {
+            display: none;
+        }
+
+        .map-file-label {
+            display: inline-block;
+            padding: 8px 12px;
+            background-color: #4CAF50;
+            color: white;
+            border-radius: 4px;
+            cursor: pointer;
+            text-align: center;
+            width: 100%;
+            box-sizing: border-box;
+        }
+
+        .map-file-label:hover {
+            background-color: #45a049;
+        }
+
+        .current-map-file {
+            font-size: 0.9em;
+            color: #666;
+            word-break: break-all;
+            padding: 5px;
+        }
+
+        .map-select {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background-color: white;
+            margin-bottom: 10px;
+        }
+
+        .map-options-header .toggle-icon {
+            font-size: 1.2em;
+            transition: transform 0.3s ease;
+        }
+
+        .map-options-header.collapsed .toggle-icon {
+            transform: rotate(180deg);
+        }
+
+        .peer-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 5px;
+        }
+
+        .peer-name {
+            font-weight: bold;
+            font-size: 16px;
+        }
+
+        .peer-id {
+            color: #666;
+            font-size: 12px;
+        }
+
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 4px;
+        }
+
+        .info-label {
+            font-weight: bold;
+            margin-right: 5px;
+        }
+
+        .connect-button {
+            width: 100%;
+            padding: 8px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+
+        .connect-button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+
+        .selected-peer {
+            background-color: #e3f2fd;
+            border-left: 3px solid #2196F3;
+        }
+
+        .lost-aircraft {
+            background-color: #fff3f3;
+            border-left: 3px solid #f44336;
+        }
+
+        #map-warning {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: rgba(255, 0, 0, 0.9);
+            color: white;
+            padding: 15px 30px;
+            border-radius: 8px;
+            font-size: 24px;
+            font-weight: bold;
+            z-index: 1000;
+            text-align: center;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+            display: none;
+            animation: warning-blink 1s infinite;
+            white-space: nowrap;
+        }
+
+        @keyframes warning-blink {
+            0% {
+                background-color: rgba(255, 0, 0, 0.9);
+            }
+
+            50% {
+                background-color: rgba(255, 0, 0, 0.6);
+            }
+
+            100% {
+                background-color: rgba(255, 0, 0, 0.9);
+            }
+        }
+
+        @media (max-width: 768px) {
+            #info-panel {
+                width: 250px;
+            }
+
+            #info-panel.collapsed {
+                transform: translateX(calc(100% - 30px));
+            }
+
+            #collapse-button {
+                width: 25px;
+                height: 25px;
+                font-size: 16px;
+            }
+        }
+
+        /* Update map controls position to not conflict with menu */
+        .ol-zoom {
+            top: 100px !important;
+        }
+
+        .notification {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            z-index: 2000;
+            text-align: center;
+            display: none;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="main-header"></div>
+    <div id="map-warning"></div>
+    <div id='map'></div>
+    <div class="map-options-section">
+        <div class="map-options-header">
+            <h3>Map Options</h3>
+            <span class="toggle-icon">▼</span>
+        </div>
+        <div class="map-options-content collapsed">
+            <input type="file" id="map-file-input" class="map-file-input" accept=".osm,.pbf,.mbtiles" />
+            <label for="map-file-input" class="map-file-label">Select OSM Map File</label>
+            <div class="current-map-file" id="current-map-file">No map file selected</div>
+        </div>
+    </div>
+    <div id='info-panel'>
+        <button id="collapse-button">•••</button>
+        <div class="radar-status-header">
+            <h2>Radar Status</h2>
+            <span class="toggle-icon">▼</span>
+        </div>
+        <div id="radar-status">
+            <div class="info-row">
+                <span class="info-label">Serial Status:</span>
+                <span id="serial-status">Checking...</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">My ID:</span>
+                <span id="my-id">--</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Total Peers:</span>
+                <span id="total-peers">0</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Active Peers:</span>
+                <span id="active-peers">0</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Packets Received:</span>
+                <span id="packets-received">0</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Last Update:</span>
+                <span id="update-time">--</span>
+            </div>
+            <button id="connect-serial" class="connect-button" disabled>Connect Serial</button>
+        </div>
+        <div id="peers-container">
+            <!-- Peer information will be added here dynamically -->
+        </div>
+    </div>
+    <script>
+        // Initialize SQL.js before anything else
+        initSqlJs({
+            locateFile: filename => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/${filename}`
+        }).then(SQL => {
+            // Store SQL instance globally
+            window.SQL = SQL;
+        }).catch(err => {
+            console.error('Failed to initialize SQL.js:', err);
+        });
+
+        // Remove debug logging
+        // Initialize the map
+        const map = new ol.Map({
+            target: 'map',
+            layers: [
+                new ol.layer.Tile({
+                    source: new ol.source.OSM()
+                })
+            ],
+            view: new ol.View({
+                center: ol.proj.fromLonLat([-76.323204, 39.436520]),
+                zoom: 16
+            })
+        });
+
+        // Store peer markers and data
+        const peerMarkers = {};
+        const peerPaths = {};
+        const peerHistory = {};
+        const peerLastUpdate = {};
+        const LOST_THRESHOLD = 60000; // 1 minute in milliseconds
+        const CRITICAL_THRESHOLD = 300000; // 5 minutes in milliseconds
+        const MAX_HISTORY_LENGTH = 100;
+        let selectedPeer = null;
+        let serialPort = null;
+        let reader = null;
+        let textDecoder = new TextDecoder();
+        let buffer = '';
+        let isConnected = false;
+        let radarStatus = {
+            myId: null,
+            totalPeers: 0,
+            activePeers: 0,
+            packetsReceived: 0
+        };
+
+        // UI element references
+        let updateTimeElement = null;
+        let activePeersElement = null;
+        let myIdElement = null;
+        let totalPeersElement = null;
+        let packetsReceivedElement = null;
+        let connectButton = null;
+        let serialStatusElement = null;
+
+        // Add this variable at the top with your other variables
+        let isRed = true;
+
+        // Add this after your other variable declarations
+        let isPanelCollapsed = false;
+
+        // Store current peer data being accumulated
+        let currentPeer = {
+            name: null,
+            id: null,
+            lat: null,
+            lon: null,
+            alt: null,
+            speed: null,
+            heading: null,
+            lastUpdate: null
+        };
+
+        // Track lost aircraft
+        const lostAircraft = new Set();
+
+        // Check for lost aircraft periodically
+        setInterval(() => {
+            const now = Date.now();
+            for (const peerId in peerLastUpdate) {
+                const timeSinceUpdate = now - peerLastUpdate[peerId];
+                if (timeSinceUpdate > LOST_THRESHOLD && !lostAircraft.has(peerId)) {
+                    lostAircraft.add(peerId);
+                    updateLostAircraftStatus(peerId, timeSinceUpdate);
+                }
+            }
+        }, 1000);
+
+        // Update lost aircraft status without pin marker
+        function updateLostAircraftStatus(peerId, timeSinceUpdate) {
+            const peerData = peerMarkers[peerId];
+            if (!peerData) return;
+
+            const aircraftName = peerData.marker.get('name') || peerId;
+            const lastUpdateTime = Date.now() - timeSinceUpdate;
+            peerLastUpdate[peerId] = lastUpdateTime;
+
+            const mapWarning = document.getElementById('map-warning');
+            mapWarning.style.display = 'block';
+
+            const updateWarningText = () => {
+                const now = Date.now();
+                const elapsed = now - lastUpdateTime;
+                const mins = Math.floor(elapsed / 60000);
+                const secs = Math.floor((elapsed % 60000) / 1000);
+                mapWarning.innerHTML = `⚠️ LOST AIRCRAFT: ${aircraftName} - ${mins}m ${secs}s`;
+            };
+
+            updateWarningText();
+
+            if (peerData.timeUpdateInterval) {
+                clearInterval(peerData.timeUpdateInterval);
+            }
+
+            peerData.timeUpdateInterval = setInterval(updateWarningText, 1000);
+
+            const marker = peerData.marker;
+            if (peerData.flashInterval) {
+                clearInterval(peerData.flashInterval);
+            }
+
+            peerData.flashInterval = setInterval(() => {
+                const style = new ol.style.Style({
+                    image: new ol.style.Icon({
+                        src: '/static/aircraft.svg',
+                        scale: 1.0,
+                        rotation: peerData.heading ? peerData.heading * Math.PI / 180 : 0,
+                        color: isRed ? '#FF0000' : '#FFFFFF',
+                        crossOrigin: 'anonymous',
+                        anchor: [0.5, 0.5],
+                        anchorXUnits: 'fraction',
+                        anchorYUnits: 'fraction'
+                    })
+                });
+                marker.setStyle(style);
+                isRed = !isRed;
+            }, 500);
+
+            // Center map on lost aircraft
+            map.getView().animate({
+                center: marker.getGeometry().getCoordinates(),
+                zoom: 16,
+                duration: 1000
+            });
+        }
+
+        // Cleanup function to remove all markers and data
+        function cleanupAllData() {
+            console.log('Cleaning up all map data...');
+
+            // Clear all intervals and remove markers
+            for (const peerId in peerMarkers) {
+                const peerData = peerMarkers[peerId];
+
+                // Clear intervals
+                if (peerData.flashInterval) {
+                    clearInterval(peerData.flashInterval);
+                }
+                if (peerData.timeUpdateInterval) {
+                    clearInterval(peerData.timeUpdateInterval);
+                }
+
+                // Remove marker layer
+                if (peerData.layer) {
+                    map.removeLayer(peerData.layer);
+                }
+
+                // Remove pin layer if exists
+                if (peerData.pinLayer) {
+                    map.removeLayer(peerData.pinLayer);
+                }
+
+                // Remove path layer
+                if (peerPaths[peerId] && peerPaths[peerId].layer) {
+                    map.removeLayer(peerPaths[peerId].layer);
+                }
+
+                // Remove UI elements
+                removePeerUI(peerId);
+            }
+
+            // Clear all data structures
+            Object.keys(peerMarkers).forEach(key => delete peerMarkers[key]);
+            Object.keys(peerPaths).forEach(key => delete peerPaths[key]);
+            Object.keys(peerHistory).forEach(key => delete peerHistory[key]);
+            Object.keys(peerLastUpdate).forEach(key => delete peerLastUpdate[key]);
+            lostAircraft.clear();
+
+            // Reset radar status
+            radarStatus = {
+                myId: null,
+                totalPeers: 0,
+                activePeers: 0,
+                packetsReceived: 0
+            };
+
+            // Update UI elements
+            const mapWarning = document.getElementById('map-warning');
+            if (mapWarning) {
+                mapWarning.style.display = 'none';
+            }
+
+            if (myIdElement) myIdElement.textContent = '--';
+            if (totalPeersElement) totalPeersElement.textContent = '0';
+            if (activePeersElement) activePeersElement.textContent = '0';
+            if (packetsReceivedElement) packetsReceivedElement.textContent = '0';
+            if (updateTimeElement) updateTimeElement.textContent = '--';
+
+            console.log('Cleanup complete');
+        }
+
+        // Initialize radar status display
+        function initializeRadarStatus() {
+            const radarStatusElement = document.getElementById('radar-status');
+            const radarHeader = document.querySelector('.radar-status-header');
+
+            if (!radarStatusElement || !radarHeader) return;
+
+            // Add click handler to toggle radar status
+            radarHeader.addEventListener('click', () => {
+                radarStatusElement.classList.toggle('collapsed');
+                radarHeader.classList.toggle('collapsed');
+            });
+
+            radarStatusElement.innerHTML = `
+                <div class="info-row">
+                    <span class="info-label">Serial Status:</span>
+                    <span id="serial-status">Checking...</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">My ID:</span>
+                    <span id="my-id">--</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Total Peers:</span>
+                    <span id="total-peers">0</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Active Peers:</span>
+                    <span id="active-peers">0</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Packets Received:</span>
+                    <span id="packets-received">0</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Last Update:</span>
+                    <span id="update-time">--</span>
+                </div>
+                <button id="connect-serial" class="connect-button" disabled>Connect Serial</button>
+            `;
+
+            // Store element references
+            updateTimeElement = document.getElementById('update-time');
+            activePeersElement = document.getElementById('active-peers');
+            myIdElement = document.getElementById('my-id');
+            totalPeersElement = document.getElementById('total-peers');
+            packetsReceivedElement = document.getElementById('packets-received');
+            connectButton = document.getElementById('connect-serial');
+            serialStatusElement = document.getElementById('serial-status');
+
+            // Set up event listeners
+            if (connectButton) {
+                connectButton.addEventListener('click', async () => {
+                    //console.log('Connect button clicked');
+
+                    try {
+                        if (!isConnected) {
+                            //console.log('Requesting serial port...');
+                            // Request serial port
+                            serialPort = await navigator.serial.requestPort();
+                            //console.log('Serial port selected:', serialPort);
+
+                            //console.log('Opening serial port...');
+                            await serialPort.open({ baudRate: 115200 });
+                            //console.log('Serial port opened');
+
+                            isConnected = true;
+                            // Update UI
+                            serialStatusElement.textContent = 'Connected';
+                            connectButton.textContent = 'Disconnect';
+                            connectButton.disabled = false;
+
+                            // Start reading data
+                            readSerialData();
+                        } else {
+                            //console.log('Disconnecting...');
+                            isConnected = false;
+
+                            // Clean up all data first
+                            cleanupAllData();
+
+                            // Then close the connection
+                            if (reader) {
+                                await reader.cancel();
+                            }
+                            if (serialPort) {
+                                await serialPort.close();
+                            }
+                            serialPort = null;
+                            reader = null;
+
+                            // Update UI
+                            serialStatusElement.textContent = 'Ready to connect';
+                            connectButton.textContent = 'Connect Serial';
+                            connectButton.disabled = false;
+                        }
+                    } catch (error) {
+                        console.error('Serial port error:', error);
+                        serialStatusElement.textContent = 'Error: ' + error.message;
+                        connectButton.disabled = false;
+
+                        // Reset connection state and clean up
+                        isConnected = false;
+                        serialPort = null;
+                        reader = null;
+                        cleanupAllData();
+                    }
+                });
+            }
+
+            // Check for Web Serial API support
+            checkSerialSupport();
+        }
+
+        // Initialize map options
+        function initializeMapOptions() {
+            const mapOptionsHeader = document.querySelector('.map-options-header');
+            const mapOptionsContent = document.querySelector('.map-options-content');
+            const mapFileInput = document.getElementById('map-file-input');
+            const currentMapFile = document.getElementById('current-map-file');
+
+            if (mapOptionsHeader && mapOptionsContent) {
+                mapOptionsHeader.addEventListener('click', () => {
+                    mapOptionsContent.classList.toggle('collapsed');
+                    mapOptionsHeader.classList.toggle('collapsed');
+                });
+            }
+
+            if (mapFileInput) {
+                mapFileInput.addEventListener('change', async (e) => {
+                    const file = e.target.files[0];
+                    if (!file) return;
+
+                    try {
+                        currentMapFile.textContent = `Loading map: ${file.name}`;
+
+                        if (file.name.endsWith('.mbtiles')) {
+                            console.log('Loading MBTiles file:', file.name);
+
+                            if (!window.SQL) {
+                                throw new Error('SQL.js not initialized. Please refresh the page and try again.');
+                            }
+
+                            // Read the MBTiles file
+                            const fileBuffer = await file.arrayBuffer();
+                            const db = new window.SQL.Database(new Uint8Array(fileBuffer));
+                            console.log('Database loaded');
+
+                            // Store the database in localStorage for persistence
+                            try {
+                                const serializedDb = db.export();
+                                const blob = new Blob([serializedDb], { type: 'application/x-sqlite3' });
+                                const mapDataUrl = URL.createObjectURL(blob);
+                                localStorage.setItem('mapDataUrl', mapDataUrl);
+                                localStorage.setItem('lastMapFile', file.name);
+                            } catch (err) {
+                                console.warn('Failed to store map data:', err);
+                            }
+
+                            // Create and set up the tile source
+                            const tileSource = new ol.source.XYZ({
+                                tileUrlFunction: function (tileCoord) {
+                                    return `mbtiles://${tileCoord[0]}/${tileCoord[1]}/${tileCoord[2]}`;
+                                },
+                                tileLoadFunction: function (tile, src) {
+                                    try {
+                                        const [z, x, y] = src.match(/\/(\d+)\/(\d+)\/(\d+)/).slice(1).map(Number);
+                                        const flipY = (1 << z) - 1 - y;
+
+                                        console.log(`Loading tile: z=${z}, x=${x}, y=${flipY}`);
+
+                                        const stmt = db.prepare(
+                                            'SELECT tile_data FROM tiles WHERE zoom_level = ? AND tile_column = ? AND tile_row = ?'
+                                        );
+                                        const result = stmt.getAsObject([z, x, flipY]);
+                                        stmt.free();
+
+                                        if (result.tile_data) {
+                                            const blob = new Blob([result.tile_data], { type: 'image/png' });
+                                            const imageUrl = URL.createObjectURL(blob);
+                                            tile.getImage().src = imageUrl;
+                                            console.log('Tile loaded successfully');
+                                        } else {
+                                            console.log('No tile data found for:', z, x, flipY);
+                                            tile.setState(ol.TileState.ERROR);
+                                        }
+                                    } catch (err) {
+                                        console.error('Error loading tile:', err);
+                                        tile.setState(ol.TileState.ERROR);
+                                    }
+                                },
+                                minZoom: 0,
+                                maxZoom: 20
+                            });
+
+                            // Update the map with new source
+                            const newLayer = new ol.layer.Tile({
+                                source: tileSource
+                            });
+
+                            map.getLayers().clear();
+                            map.addLayer(newLayer);
+
+                            console.log('Map layer updated');
+                            currentMapFile.textContent = `Current map: ${file.name}`;
+
+                            // Show success notification and reload
+                            const notification = document.createElement('div');
+                            notification.className = 'notification';
+                            notification.textContent = 'Map loaded successfully. Refreshing page...';
+                            document.body.appendChild(notification);
+                            notification.style.display = 'block';
+
+                            setTimeout(() => {
+                                window.location.reload();
+                            }, 1500);
+                        }
+                        else if (file.name.endsWith('.osm') || file.name.endsWith('.pbf')) {
+                            currentMapFile.textContent = 'OSM/PBF files not yet supported';
+                            alert('OSM/PBF file support coming soon');
+                        }
+                    } catch (error) {
+                        console.error('Error loading map file:', error);
+                        currentMapFile.textContent = `Error loading map: ${error.message}`;
+                    }
+                });
+            }
+
+            // Check for last used map file
+            const lastMapFile = localStorage.getItem('lastMapFile');
+            if (lastMapFile) {
+                currentMapFile.textContent = `Last used map: ${lastMapFile}`;
+            }
+        }
+
+        // Initialize everything when the page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            initializeRadarStatus();
+            initializeCollapseButton();
+            initializeMapOptions();
+        });
+
+        // Check for Web Serial API support
+        function checkSerialSupport() {
+            const statusElement = document.getElementById('serial-status');
+            const connectButton = document.getElementById('connect-serial');
+
+            if (!window.isSecureContext) {
+                statusElement.textContent = 'Web Serial API requires HTTPS or localhost';
+                connectButton.disabled = true;
+                return;
+            }
+
+            if (!('serial' in navigator)) {
+                statusElement.textContent = 'Web Serial API not supported in this browser';
+                connectButton.disabled = true;
+                return;
+            }
+
+            // If we get here, the Serial API is available
+            statusElement.textContent = 'Ready to connect';
+            connectButton.disabled = false;
+        }
+
+        async function readSerialData() {
+            try {
+                const decoder = new TextDecoder();
+                let buffer = '';
+
+                while (serialPort.readable && isConnected) {
+                    reader = serialPort.readable.getReader();
+                    try {
+                        while (true) {
+                            const { value, done } = await reader.read();
+                            if (done) break;
+
+                            const text = decoder.decode(value, { stream: true });
+                            buffer += text;
+
+                            let lineEnd;
+                            while ((lineEnd = buffer.indexOf('\n')) >= 0) {
+                                const line = buffer.substring(0, lineEnd).trim();
+                                buffer = buffer.substring(lineEnd + 1);
+
+                                if (line) {
+                                    try {
+                                        const data = parsePeerData(line);
+                                        if (data) {
+                                            updatePeerData(data);
+                                        }
+                                    } catch (parseError) {
+                                        // Silent fail for parse errors
+                                    }
+                                }
+                            }
+                        }
+                    } catch (error) {
+                        if (!isConnected) break;
+                    } finally {
+                        reader.releaseLock();
+                    }
+                }
+            } catch (error) {
+                serialStatusElement.textContent = 'Error reading data: ' + error.message;
+                isConnected = false;
+                serialPort = null;
+                reader = null;
+                connectButton.textContent = 'Connect Serial';
+                connectButton.disabled = false;
+            }
+        }
+
+        function parseRadarStatus(line) {
+            const packetsMatch = line.match(/Packets Received:\s*(\d+)/);
+            const myIdMatch = line.match(/My ID:\s*(\w+)/);
+            const totalPeersMatch = line.match(/Total Peers:\s*(\d+)/);
+            const activePeersMatch = line.match(/Active Peers:\s*(\d+)/);
+
+            if (packetsMatch) radarStatus.packetsReceived = parseInt(packetsMatch[1]);
+            if (myIdMatch) radarStatus.myId = myIdMatch[1];
+            if (totalPeersMatch) radarStatus.totalPeers = parseInt(totalPeersMatch[1]);
+            if (activePeersMatch) radarStatus.activePeers = parseInt(activePeersMatch[1]);
+
+            // Update radar status using stored element references
+            if (myIdElement) myIdElement.textContent = radarStatus.myId || '--';
+            if (totalPeersElement) totalPeersElement.textContent = radarStatus.totalPeers;
+            if (activePeersElement) activePeersElement.textContent = radarStatus.activePeers;
+            if (packetsReceivedElement) packetsReceivedElement.textContent = radarStatus.packetsReceived;
+        }
+
+        function parsePeerData(line) {
+            // console.log('Parsing line:', line);
+            try {
+                // Check for radar status lines
+                if (line.includes('=== Radar Status ===') ||
+                    line.includes('Packets Received:') ||
+                    line.includes('My ID:') ||
+                    line.includes('Total Peers:') ||
+                    line.includes('Active Peers:')) {
+                    parseRadarStatus(line);
+                    return null;
+                }
+
+                // Check for peer info section
+                if (line.includes('=== Peer Info ===')) {
+                    return null;
+                }
+
+                // Try to match different field patterns
+                const nameMatch = line.match(/Name:\s*(\w+)/);
+                const idMatch = line.match(/ID:\s*(\w+)/);
+                const locationMatch = line.match(/Location:\s*([\d.-]+),\s*([\d.-]+)/);
+                const updateMatch = line.match(/Last Update:\s*(\d+)\s*ms ago/);
+                const altMatch = line.match(/Altitude:\s*(\d+)\s*m/);
+                const speedMatch = line.match(/Speed:\s*(\d+)\s*km\/h/);
+                const courseMatch = line.match(/Course:\s*(\d+)°/);
+
+                // Update current peer data based on matches
+                if (nameMatch) {
+                    // console.log('Found name:', nameMatch[1]);
+                    currentPeer.name = nameMatch[1];
+                }
+                if (idMatch) {
+                    // console.log('Found ID:', idMatch[1]);
+                    currentPeer.id = idMatch[1];
+                }
+                if (locationMatch) {
+                    // console.log('Found location:', locationMatch[1], locationMatch[2]);
+                    currentPeer.lat = parseFloat(locationMatch[1]);
+                    currentPeer.lon = parseFloat(locationMatch[2]);
+                }
+                if (updateMatch) {
+                    // console.log('Found update time:', updateMatch[1]);
+                    currentPeer.lastUpdate = parseInt(updateMatch[1]);
+                }
+                if (altMatch) {
+                    // console.log('Found altitude:', altMatch[1]);
+                    currentPeer.alt = parseFloat(altMatch[1]);
+                }
+                if (speedMatch) {
+                    // console.log('Found speed:', speedMatch[1]);
+                    currentPeer.speed = parseFloat(speedMatch[1]) * 0.539957; // Convert km/h to knots
+                }
+                if (courseMatch) {
+                    // console.log('Found course:', courseMatch[1]);
+                    currentPeer.heading = (parseFloat(courseMatch[1]) / 10) % 360; // Handle 3590° format
+                }
+
+                // Check if we have a complete record
+                if (currentPeer.id && currentPeer.lat !== null && currentPeer.lon !== null) {
+                    // console.log('Complete peer data found:', currentPeer);
+                    // Create a copy of the current data
+                    const completeData = { ...currentPeer };
+
+                    // Reset current peer data
+                    currentPeer = {
+                        name: null,
+                        id: null,
+                        lat: null,
+                        lon: null,
+                        alt: null,
+                        speed: null,
+                        heading: null,
+                        lastUpdate: null
+                    };
+
+                    return completeData;
+                }
+
+                return null;
+            } catch (error) {
+                console.error('Error parsing line:', error);
+                return null;
+            }
+        }
+
+        // Add validation function for GPS coordinates
+        function isValidGPSCoordinate(lat, lon) {
+            // Check if coordinates are numbers and within valid ranges
+            return !isNaN(lat) && !isNaN(lon) &&
+                lat !== 0 && lon !== 0 && // Exclude 0,0 coordinates
+                Math.abs(lat) <= 90 && Math.abs(lon) <= 180;
+        }
+
+        // Update peer data with validation
+        function updatePeerData(peerData) {
+            if (!peerData || !peerData.id) return;
+
+            const peerId = peerData.id;
+            const now = Date.now();
+            const timeSinceUpdate = peerData.lastUpdate || 0;
+
+            // Only create/update marker if we have valid GPS coordinates
+            if (isValidGPSCoordinate(peerData.lat, peerData.lon)) {
+                if (!peerMarkers[peerId]) {
+                    peerMarkers[peerId] = createPeerMarker(peerId, peerData);
+                    if (peerMarkers[peerId]) {
+                        addPeerPath(peerId);
+                    }
+                } else {
+                    const marker = peerMarkers[peerId].marker;
+                    marker.getGeometry().setCoordinates(ol.proj.fromLonLat([peerData.lon, peerData.lat]));
+
+                    // Update rotation if heading is available
+                    if (peerData.heading !== undefined) {
+                        const style = marker.getStyle();
+                        const icon = style.getImage();
+                        icon.setRotation(peerData.heading * Math.PI / 180);
+                    }
+                }
+
+                // Update path
+                updatePeerPath(peerId, [peerData.lon, peerData.lat]);
+            }
+
+            // Store the last known position
+            peerLastUpdate[peerId] = now;
+
+            // Now handle lost aircraft status
+            if (timeSinceUpdate > CRITICAL_THRESHOLD) {
+                if (!lostAircraft.has(peerId)) {
+                    lostAircraft.add(peerId);
+                    if (peerMarkers[peerId]) {
+                        updateLostAircraftStatus(peerId, timeSinceUpdate);
+                    }
+                }
+            } else {
+                if (lostAircraft.has(peerId)) {
+                    lostAircraft.delete(peerId);
+                    const mapWarning = document.getElementById('map-warning');
+                    mapWarning.style.display = 'none';
+                    if (peerMarkers[peerId]) {
+                        cleanupLostAircraft(peerId);
+                    }
+                }
+            }
+
+            // Always update UI regardless of GPS validity
+            updatePeerUI(peerId, peerData);
+
+            // Update last update time and active peers count
+            if (updateTimeElement) {
+                updateTimeElement.textContent = new Date().toLocaleTimeString();
+            }
+            if (activePeersElement) {
+                const validPeers = Object.values(peerMarkers).filter(peer =>
+                    isValidGPSCoordinate(peer.marker.get('lat'), peer.marker.get('lon'))
+                ).length;
+                activePeersElement.textContent = validPeers;
+            }
+        }
+
+        // Update createPeerMarker to store coordinates
+        function createPeerMarker(peerId, peerData) {
+            try {
+                const coordinates = ol.proj.fromLonLat([peerData.lon, peerData.lat]);
+                const marker = new ol.Feature({
+                    geometry: new ol.geom.Point(coordinates),
+                    id: peerId,
+                    name: peerData.name,
+                    lat: peerData.lat,
+                    lon: peerData.lon
+                });
+
+                // Set initial style based on lost status
+                const isLost = peerData.lastUpdate > CRITICAL_THRESHOLD;
+                const markerStyle = new ol.style.Style({
+                    image: new ol.style.Icon({
+                        src: '/static/aircraft.svg',
+                        scale: 1.0,
+                        rotation: peerData.heading ? peerData.heading * Math.PI / 180 : 0,
+                        color: isLost ? '#FF0000' : '#0000FF',
+                        crossOrigin: 'anonymous',
+                        anchor: [0.5, 0.5],
+                        anchorXUnits: 'fraction',
+                        anchorYUnits: 'fraction'
+                    })
+                });
+
+                marker.setStyle(markerStyle);
+
+                const vectorLayer = new ol.layer.Vector({
+                    source: new ol.source.Vector({
+                        features: [marker]
+                    }),
+                    zIndex: 100
+                });
+
+                map.addLayer(vectorLayer);
+
+                // If lost, start flashing immediately
+                if (isLost) {
+                    const flashInterval = setInterval(() => {
+                        const style = new ol.style.Style({
+                            image: new ol.style.Icon({
+                                src: '/static/aircraft.svg',
+                                scale: 1.0,
+                                rotation: peerData.heading ? peerData.heading * Math.PI / 180 : 0,
+                                color: isRed ? '#FF0000' : '#FFFFFF',
+                                crossOrigin: 'anonymous',
+                                anchor: [0.5, 0.5],
+                                anchorXUnits: 'fraction',
+                                anchorYUnits: 'fraction'
+                            })
+                        });
+                        marker.setStyle(style);
+                        isRed = !isRed;
+                    }, 500);
+
+                    return { marker, layer: vectorLayer, flashInterval };
+                }
+
+                return { marker, layer: vectorLayer };
+            } catch (error) {
+                console.error('Error creating marker:', error);
+                return null;
+            }
+        }
+
+        // Add path for a peer
+        function addPeerPath(peerId) {
+            const path = new ol.Feature({
+                geometry: new ol.geom.LineString([])
+            });
+
+            const pathStyle = new ol.style.Style({
+                stroke: new ol.style.Stroke({
+                    color: '#0000FF', // Blue path for active aircraft
+                    width: 3
+                })
+            });
+
+            path.setStyle(pathStyle);
+
+            const vectorLayer = new ol.layer.Vector({
+                source: new ol.source.Vector({
+                    features: [path]
+                })
+            });
+
+            map.addLayer(vectorLayer);
+            peerPaths[peerId] = { path, layer: vectorLayer };
+            peerHistory[peerId] = [];
+        }
+
+        // Update paths for a peer
+        function updatePeerPath(peerId, position) {
+            if (!peerHistory[peerId]) {
+                peerHistory[peerId] = [];
+            }
+
+            // Convert position to map coordinates
+            const mapCoords = ol.proj.fromLonLat(position);
+            peerHistory[peerId].push(mapCoords);
+
+            // Limit history length
+            if (peerHistory[peerId].length > MAX_HISTORY_LENGTH) {
+                peerHistory[peerId].shift();
+            }
+
+            // Update path if it exists
+            if (peerPaths[peerId]) {
+                const path = peerPaths[peerId].path;
+                path.getGeometry().setCoordinates(peerHistory[peerId]);
+            }
+        }
+
+        // Create or update UI for peer info
+        function updatePeerUI(peerId, peerData) {
+            let peerElement = document.getElementById(`peer-${peerId}`);
+            const isLost = lostAircraft.has(peerId);
+
+            const peerContent = `
+                <div class="peer-header">
+                    <span class="peer-name">${peerData.name || 'Unknown'}</span>
+                    <span class="peer-id">ID: ${peerId}</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Location:</span>
+                    <span>${(peerData.lat || 0).toFixed(6)}, ${(peerData.lon || 0).toFixed(6)}</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Altitude:</span>
+                    <span>${peerData.alt !== undefined ? peerData.alt.toFixed(0) + ' m' : '--'}</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Speed:</span>
+                    <span>${peerData.speed !== undefined ? peerData.speed.toFixed(1) + ' kts' : '--'}</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Heading:</span>
+                    <span>${peerData.heading !== undefined ? peerData.heading.toFixed(0) + '°' : '--'}</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Last Update:</span>
+                    <span>${peerData.lastUpdate !== undefined ? (peerData.lastUpdate / 1000).toFixed(1) + ' s ago' : '--'}</span>
+                </div>
+            `;
+
+            if (!peerElement) {
+                peerElement = document.createElement('div');
+                peerElement.id = `peer-${peerId}`;
+                peerElement.className = 'peer-section';
+                peerElement.innerHTML = peerContent;
+
+                peerElement.addEventListener('click', () => {
+                    selectPeer(peerId);
+                });
+
+                document.getElementById('peers-container').appendChild(peerElement);
+            } else {
+                peerElement.innerHTML = peerContent;
+            }
+
+            // Highlight if selected
+            if (selectedPeer === peerId) {
+                peerElement.classList.add('selected-peer');
+            } else {
+                peerElement.classList.remove('selected-peer');
+            }
+        }
+
+        // Remove peer UI
+        function removePeerUI(peerId) {
+            const peerElement = document.getElementById(`peer-${peerId}`);
+            if (peerElement) {
+                peerElement.remove();
+            }
+        }
+
+        // Select a peer
+        function selectPeer(peerId) {
+            if (selectedPeer === peerId) {
+                // Deselect if already selected
+                selectedPeer = null;
+            } else {
+                selectedPeer = peerId;
+            }
+
+            // Update UI for all peers
+            for (const id in peerMarkers) {
+                const peerElement = document.getElementById(`peer-${id}`);
+                if (peerElement) {
+                    if (selectedPeer === id) {
+                        peerElement.classList.add('selected-peer');
+
+                        // Center map on selected peer
+                        const peer = peerMarkers[id];
+                        const coordinates = peer.marker.getGeometry().getCoordinates();
+                        map.getView().animate({
+                            center: coordinates,
+                            zoom: 16
+                        });
+                    } else {
+                        peerElement.classList.remove('selected-peer');
+                    }
+                }
+            }
+        }
+
+        // Clean up lost aircraft without pin references
+        function cleanupLostAircraft(peerId) {
+            const peerData = peerMarkers[peerId];
+            if (!peerData) return;
+
+            if (peerData.flashInterval) {
+                clearInterval(peerData.flashInterval);
+                peerData.flashInterval = null;
+            }
+            if (peerData.timeUpdateInterval) {
+                clearInterval(peerData.timeUpdateInterval);
+                peerData.timeUpdateInterval = null;
+            }
+
+            const mapWarning = document.getElementById('map-warning');
+            mapWarning.style.display = 'none';
+
+            const marker = peerData.marker;
+            const style = new ol.style.Style({
+                image: new ol.style.Icon({
+                    src: '/static/aircraft.svg',
+                    scale: 1.0,
+                    rotation: peerData.heading ? peerData.heading * Math.PI / 180 : 0,
+                    color: '#0000FF',
+                    crossOrigin: 'anonymous',
+                    anchor: [0.5, 0.5],
+                    anchorXUnits: 'fraction',
+                    anchorYUnits: 'fraction'
+                })
+            });
+            marker.setStyle(style);
+        }
+
+        function initializeCollapseButton() {
+            const infoPanel = document.getElementById('info-panel');
+            const collapseButton = document.getElementById('collapse-button');
+
+            if (collapseButton) {
+                collapseButton.addEventListener('click', () => {
+                    isPanelCollapsed = !isPanelCollapsed;
+                    infoPanel.classList.toggle('collapsed', isPanelCollapsed);
+
+                    // Update map size after panel state changes
+                    setTimeout(() => {
+                        map.updateSize();
+                    }, 300); // Match this with your CSS transition time
+                });
+            }
+        }
+    </script>
+</body>
+
+</html>

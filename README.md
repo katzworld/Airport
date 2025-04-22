@@ -1,4 +1,5 @@
 # iNav Radar ATC Formation Tracker
+![image](https://github.com/user-attachments/assets/779b278d-7155-45ac-9ec4-5fcba05a9d46)
 
 This project creates a complete solution for tracking multiple aircraft equipped with iNav flight controllers on a locally hosted interactive map. It consists of an ESP8266-based WiFi bridge that connects to iNav Radar networks and forwards telemetry data to a web application displaying real-time positions on custom map tiles.
 
@@ -75,6 +76,8 @@ pio run -t upload
 ```bash
 pio device monitor -b 115200
 ```
+
+![image](https://github.com/user-attachments/assets/3775d1e4-5878-4ab2-b263-2c7dbe037de3)
 
 ### Web Interface Setup
 
